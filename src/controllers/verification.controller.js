@@ -332,14 +332,15 @@ export async function verifyPSA(req, res) {
 
 export async function verifyOCR(req, res) {
   const { userId } = req.body;
-  const filePath = req.file?.path;
-  if (!filePath) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "image field is required (png/jpg/webp/gif)",
-      });
+  const file = req.file;                      // from multer.memoryStorage()
+  const buffer = file?.buffer;
+  const filename = file?.originalname || "upload.jpg";
+
+  if (!buffer) {
+    return res.status(400).json({
+      success: false,
+      message: "image field is required (png/jpg/webp/gif)",
+    });
   }
 
   let type, data, status, user;
@@ -347,37 +348,26 @@ export async function verifyOCR(req, res) {
   try {
     user = await getUserById(userId);
     if (!user) {
-      return res
-        .status(400)
-        .json({ success: false, message: ERROR_USER_NOT_FOUND });
+      return res.status(400).json({ success: false, message: ERROR_USER_NOT_FOUND });
     }
 
     const result = await extractWithGemini({
-      apiKey: env?.google?.aiAPIKey,
-      imagePath: filePath,
+      apiKey: env.google.aiAPIKey,
+      imageBuffer: buffer,
+      filename,
     });
 
-    if (
-      result?.type.toLowerCase().includes("certificate") &&
-      result?.type.toLowerCase().includes("birth")
-    ) {
+    if (result?.type?.toLowerCase?.().includes("certificate") &&
+        result?.type?.toLowerCase?.().includes("birth")) {
       type = "PSA";
-      data = {
-        ...result,
-        type,
-      };
+      data = { ...result, type };
       const records = await verifyPSARecords(result?.firstName, result?.lastName, result?.sex, result?.dateOfBirth);
       status = records && records?.id ? "Verified" : "Fake";
-    } else if (
-      result?.type.toLowerCase().includes("certification") &&
-      result?.type.toLowerCase().includes("vote")
-    ) {
+    } else if (result?.type?.toLowerCase?.().includes("certification") &&
+               result?.type?.toLowerCase?.().includes("vote")) {
       type = "VOTERS";
       result.precintNo = result.precintNo?.trim().split(" ").join(""); // remove spaces
-      data = {
-        ...result,
-        type,
-      };
+      data = { ...result, type };
       const voters = await verifyVoters(result?.precintNo, result?.firstName, result?.lastName);
       status = voters && voters?.id ? "Verified" : "Fake";
     } else {
@@ -388,7 +378,6 @@ export async function verifyOCR(req, res) {
     delete data.type;
     const verification = await createVerification(type, userId, data, status);
 
-    await fs.unlink(filePath).catch(() => {});
     if (status === "Verified") {
       return res.json({ success: true, data: verification });
     } else {
@@ -399,7 +388,6 @@ export async function verifyOCR(req, res) {
       });
     }
   } catch (err) {
-    await fs.unlink(filePath).catch(() => {});
     console.error(err);
     if (type && user) await createVerification(type, userId, {}, "Failed");
     return res.status(500).json({

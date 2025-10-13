@@ -1,4 +1,3 @@
-// src/gemini.js
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs/promises";
 import path from "path";
@@ -7,16 +6,16 @@ import { extractionSchema } from "../config/schema.js";
 const PREFERRED_MODELS = [
   "gemini-2.5-flash",
   "gemini-2.0-flash",
-  "gemini-1.5-flash" // last-resort if still available to your key
+  "gemini-1.5-flash" // fallback only if available to your key/region
 ];
 
 export function geminiClient(apiKey) {
-  if (!apiKey) throw new Error("GOOGLE_AI_API_KEY is missing.");
+  if (!apiKey) throw new Error("GOOGLE_API_KEY is missing.");
   return new GoogleGenerativeAI(apiKey);
 }
 
 function mimeOf(filename) {
-  const ext = path.extname(filename).toLowerCase();
+  const ext = path.extname(filename || "").toLowerCase();
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
   if (ext === ".png") return "image/png";
   if (ext === ".webp") return "image/webp";
@@ -34,6 +33,15 @@ export async function fileToInlinePart(filePath) {
   };
 }
 
+export function bufferToInlinePart(buffer, filename = "image.jpg") {
+  return {
+    inlineData: {
+      data: Buffer.from(buffer).toString("base64"),
+      mimeType: mimeOf(filename),
+    },
+  };
+}
+
 function extractFirstJSONObject(s) {
   if (!s) return null;
   const start = s.indexOf("{");
@@ -41,7 +49,6 @@ function extractFirstJSONObject(s) {
   if (start === -1 || end === -1 || end <= start) return null;
   try { return JSON.parse(s.slice(start, end + 1)); } catch { return null; }
 }
-
 function parseResponseJSON(resp) {
   const t = resp?.text?.();
   if (t && t.trim()) {
@@ -60,13 +67,11 @@ function parseResponseJSON(resp) {
   } catch {}
   return null;
 }
-
 function readFinishReason(resp) {
   return resp?.response?.candidates?.[0]?.finishReason
       || resp?.candidates?.[0]?.finishReason
       || "UNKNOWN";
 }
-
 function assertNotBlocked(resp) {
   const pf = resp?.promptFeedback;
   if (pf?.blockReason) {
@@ -75,9 +80,6 @@ function assertNotBlocked(resp) {
   }
 }
 
-/**
- * Single call with configurable token cap and optional schema.
- */
 async function callModel({ genAI, modelId, imagePart, systemMsg, withSchema, maxOutputTokens }) {
   const model = genAI.getGenerativeModel({
     model: modelId,
@@ -92,11 +94,7 @@ async function callModel({ genAI, modelId, imagePart, systemMsg, withSchema, max
     },
   });
 
-  const parts = [
-    { text: systemMsg },
-    imagePart
-  ];
-
+  const parts = [{ text: systemMsg }, imagePart];
   const resp = await model.generateContent({ contents: [{ role: "user", parts }] });
   assertNotBlocked(resp);
   const parsed = parseResponseJSON(resp.response ?? resp);
@@ -118,12 +116,12 @@ const HARDCODED_PROMPT = [
   "   Use your knowledge of Philippine geography to infer the correct spelling or province if abbreviated.",
   "3. If a field is not visible or uncertain, return an empty string for that field.",
   "4. Do not output commentary, markdown, or extra text—return strictly valid JSON only.",
-  "5. votersIdNumber can also be id sometimes if the uploaed image is a voter's certification."
+  "5. votersIdNumber can also be id sometimes if the uploaded image is a voter's certification."
 ].join(" ");
 
 const RETRY_PROMPT = `
 Return only this JSON:
-{"type":"","id":"","name":"","firstName":"","middleName":"","lastName":"","sex":"","dateOfBirth":"","placeOfBirth":"","address":"","precintNo": "", "votersIdNumber": "","others":"", }
+{"type":"","id":"","name":"","firstName":"","middleName":"","lastName":"","sex":"","dateOfBirth":"","placeOfBirth":"","address":"","precintNo":"","votersIdNumber":"","others":""}
 Keep all values short and on one line.
 Format dateOfBirth strictly as YYYY-MM-DD.
 For placeOfBirth, ensure it's a valid location in the Philippines (city, municipality, or province).
@@ -131,21 +129,23 @@ For placeOfBirth, ensure it's a valid location in the Philippines (city, municip
 
 /**
  * Main extraction with schema first, then fallback.
+ * Accepts either imagePath (local dev) or imageBuffer + filename (serverless like Vercel).
  */
-export async function extractWithGemini({ apiKey, imagePath }) {
+export async function extractWithGemini({ apiKey, imagePath, imageBuffer, filename }) {
   const genAI = geminiClient(apiKey);
-  const imagePart = await fileToInlinePart(imagePath);
+
+  const imagePart = imageBuffer
+    ? bufferToInlinePart(imageBuffer, filename)
+    : await fileToInlinePart(imagePath);
 
   const tryModel = async (modelId) => {
     try {
-      // Attempt 1: schema + 2048 tokens
       return await callModel({
         genAI, modelId, imagePart, systemMsg: HARDCODED_PROMPT, withSchema: true, maxOutputTokens: 2048
       });
     } catch (e1) {
       const msg1 = String(e1?.message || e1);
       if (/not found|404|unsupported/i.test(msg1)) throw e1;
-      // Attempt 2: no schema + 4096 tokens with simpler hardcoded instructions
       return await callModel({
         genAI, modelId, imagePart, systemMsg: HARDCODED_PROMPT + RETRY_PROMPT, withSchema: false, maxOutputTokens: 4096
       });
@@ -161,6 +161,5 @@ export async function extractWithGemini({ apiKey, imagePath }) {
       throw e;
     }
   }
-
   throw new Error("No supported Gemini Flash model available for this API key/region.");
 }

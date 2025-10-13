@@ -7,27 +7,19 @@
  */
 import { Router } from 'express';
 import { asyncHandler } from '../middlewares/async.js';
-import { getVerification, verifyPSA, verifyOCR, getVerificationList } from '../controllers/verification.controller.js';
-import fs from "fs/promises";
+import {
+  getVerification,
+  verifyPSA,
+  verifyOCR,
+  getVerificationList
+} from '../controllers/verification.controller.js';
 import multer from "multer";
-import path from "path";
 import { query } from "express-validator";
 
 const router = Router();
 
-// Ensure ./uploads exists
-const uploadDir = path.join(process.cwd(), "uploads");
-await fs.mkdir(uploadDir, { recursive: true }).catch(() => {});
-
-// Multer (disk) for image uploads
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
-  filename: (_req, file, cb) => {
-    const ts = Date.now();
-    const ext = path.extname(file.originalname) || ".bin";
-    cb(null, `${ts}${ext}`);
-  },
-});
+/* ========= Multer (memory) for Vercel/serverless ========= */
+const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
@@ -210,26 +202,6 @@ router.post('/verify/psa', asyncHandler(verifyPSA));
  *     responses:
  *       200:
  *         description: Extracted fields (JSON)
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean }
- *                 data:
- *                   type: object
- *                   properties:
- *                     type:         { type: string }
- *                     id:           { type: string }
- *                     name:         { type: string }
- *                     firstName:    { type: string }
- *                     middleName:   { type: string }
- *                     lastName:     { type: string }
- *                     sex:          { type: string }
- *                     dateOfBirth:  { type: string, example: "1999-03-21" }
- *                     placeOfBirth: { type: string, example: "Quezon City, Metro Manila, Philippines" }
- *                     address:      { type: string }
- *                     others:       { type: string }
  *       400:
  *         description: Missing or invalid image
  *       500:
