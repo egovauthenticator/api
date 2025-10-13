@@ -1,0 +1,50 @@
+|-- .env
+|-- .gitignore
+|-- cert
+    |-- localhost.crt
+    |-- localhost.key
+|-- index.js
+|-- LICENSE
+|-- nodemon.json
+|-- package-lock.json
+|-- package.json
+|-- README.md
+|-- src
+    |-- app.js
+    |-- config
+        |-- env.js
+        |-- schema.js
+        |-- swagger.js
+    |-- constants
+        |-- auth.constant.js
+        |-- user.constant.js
+        |-- verification.constant.js
+    |-- controllers
+        |-- auth.controller.js
+        |-- verification.controller.js
+    |-- db
+        |-- db.js
+    |-- middlewares
+        |-- async.js
+        |-- error-handler.js
+    |-- routes
+        |-- auth.routes.js
+        |-- index.routes.js
+        |-- verification.routes.js
+    |-- server.js
+    |-- services
+        |-- auth.service.js
+        |-- email.service.js
+        |-- gemini.service.js
+        |-- user.service.js
+        |-- verification.service.js
+    |-- utils
+        |-- utils.js
+|-- uploads
+    |-- 1760306397295.jpg
+    |-- 1760309843400.jpg
+    |-- 1760309875417.jpg
+    |-- 1760312463631.jpg
+    |-- 1760315346457.jpg
+    |-- 1760315373203.jpg
+|-- vercel.json
