@@ -384,7 +384,7 @@ export async function verifyOCR(req, res) {
       return res.status(400).json({
         success: false,
         data: verification,
-        message: "Unverified document",
+        message: "This is not verified and authentic",
       });
     }
   } catch (err) {
