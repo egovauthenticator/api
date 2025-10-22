@@ -32,7 +32,12 @@ export async function getVerificationByUser(userId, pageSize = 10, pageIndex = 0
     COUNT(*) OVER() AS total_rows
     FROM dbo."Verification" v
     LEFT JOIN dbo."User" u ON v."UserId" = u."UserId"
-    WHERE v."UserId" = $1
+    WHERE v."UserId" = $1 
+    AND v."Data"->>'id' IS NOT NULL AND v."Data"->>'id' <> ''
+    AND v."Data"->>'name' IS NOT NULL AND v."Data"->>'name' <> ''
+    AND v."Data"->>'firstName' IS NOT NULL AND v."Data"->>'firstName' <> ''
+    AND v."Data"->>'lastName' IS NOT NULL AND v."Data"->>'lastName' <> ''
+    AND v."Type" IN ('PSA', 'PHILSYS', 'VOTERS')
     ORDER BY v."Timestamp" DESC
     LIMIT $2 OFFSET $3;
   `;
@@ -42,10 +47,7 @@ export async function getVerificationByUser(userId, pageSize = 10, pageIndex = 0
 
   return {
     total: totalRows,
-    results: camelcaseKeys(result.rows.map(r => {
-      const { total_rows, ...rest } = r;
-      return rest;
-    })),
+    results: camelcaseKeys(result.rows),
   };
 }
 

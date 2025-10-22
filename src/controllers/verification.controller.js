@@ -206,7 +206,8 @@ export async function getVerification(req, res) {
 
 export async function getVerificationList(req, res) {
   try {
-    const { userId, pageSize, pageIndex } = req.query;
+    const userId = req.params.userId;
+    const { pageSize, pageIndex } = req.query;
     if (!userId) return res.status(400).json({ message: "Missing file id" });
 
     const user = await getUserById(userId);
@@ -229,6 +230,7 @@ export async function verifyPSA(req, res) {
   try {
     // Accept both exact keys or fallbacks from client
     const {
+      userId,
       d, // date issued (YYYY-MM-DD)
       dob, // DOB (YYYY-MM-DD)
       pcn, // 16-digit PCN (may include dashes/spaces)
@@ -321,7 +323,19 @@ export async function verifyPSA(req, res) {
     // Cache successful verification result
     setWithTTL(verifyCache, verifyKey, data, env.verifier?.verifyTTLMS);
 
-    return res.json({ success: true, cached: false, data });
+    const verification = await createVerification("PHILSYS", userId, {
+      id: pcn,
+      sex: s,
+      name: `${fn} ${mn ? mn + ' ' : ''}${ln}`,
+      address: pob,
+      lastName: ln,
+      firstName:fn,
+      precintNo: null,
+      middleName: mn,
+      dateOfBirth: dob,
+      placeOfBirth: pob,
+    }, "AUTHENTIC");
+    return res.json({ success: true, cached: false, data: verification });
   } catch (err) {
     console.error(err);
     return res

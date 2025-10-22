@@ -32,16 +32,17 @@ const upload = multer({
 
 /**
  * @openapi
- * /api/verification/list:
+ * /api/verification/{userId}/list:
  *   get:
  *     tags: [Verification]
  *     summary: Get verificationfrom user
  *     parameters:
- *       - in: query
+ *       - in: path
  *         name: userId
+ *         required: true
  *         schema:
  *           type: string
- *         description: Filter by user verification
+ *         description: The User id
  *       - in: query
  *         name: pageSize
  *         schema:
@@ -73,12 +74,8 @@ const upload = multer({
  *                     type: object
  */
 router.get(
-  "/list",
+  "/:userId/list",
   [
-    query("userId")
-      .optional()
-      .isInt().withMessage("userId must be a number"),
-
     query("pageSize")
       .optional()
       .isInt({ min: 1, max: 100 }).withMessage("pageSize must be between 1 and 100")
@@ -124,6 +121,7 @@ router.get('/:id', asyncHandler(getVerification));
  *           schema:
  *             type: object
  *             required:
+ *               - userId
  *               - date
  *               - dob
  *               - pcn
@@ -134,6 +132,8 @@ router.get('/:id', asyncHandler(getVerification));
  *               - s
  *               - sf
  *             properties:
+ *               userId:
+ *                 type: string
  *               d:
  *                 type: string
  *               dob:
