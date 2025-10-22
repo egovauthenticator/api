@@ -264,7 +264,19 @@ export async function verifyPSA(req, res) {
     });
     const cached = getIfFresh(verifyCache, verifyKey);
     if (cached) {
-      return res.json({ success: true, cached: true, data: cached });
+      const verification = await createVerification("PHILSYS", userId, {
+        id: pcn,
+        sex: s,
+        name: `${fn} ${mn ? mn + ' ' : ''}${ln}`,
+        address: pob,
+        lastName: ln,
+        firstName:fn,
+        precintNo: null,
+        middleName: mn,
+        dateOfBirth: dob,
+        placeOfBirth: pob,
+      }, "AUTHENTIC");
+      return res.json({ success: true, cached: true, data: verification });
     }
 
     // 1) Get (or reuse cached) verify cookie
