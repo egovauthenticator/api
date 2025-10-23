@@ -5,14 +5,15 @@
  *   name: Verification
  *   description: API for verification
  */
-import { Router } from 'express';
-import { asyncHandler } from '../middlewares/async.js';
+import { Router } from "express";
+import { asyncHandler } from "../middlewares/async.js";
 import {
   getVerification,
   verifyPSA,
   verifyOCR,
-  getVerificationList
-} from '../controllers/verification.controller.js';
+  getVerificationList,
+  remove
+} from "../controllers/verification.controller.js";
 import multer from "multer";
 import { query } from "express-validator";
 
@@ -29,7 +30,6 @@ const upload = multer({
   },
 });
 
-
 /**
  * @openapi
  * /api/verification/{userId}/list:
@@ -37,12 +37,32 @@ const upload = multer({
  *     tags: [Verification]
  *     summary: Get verificationfrom user
  *     parameters:
+ *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *         description: Keyword
  *       - in: path
  *         name: userId
  *         required: true
  *         schema:
  *           type: string
  *         description: The User id
+ *       - in: query
+ *         name: type
+ *         description: >
+ *           Filter by one or more type. Accepts comma-separated values
+ *           (e.g., `PSA,PHILSYS,VOTERS`) or repeated keys
+ *           (e.g., `?type=PSA&type=PHILSYS&type=VOTERS`).
+ *         required: false
+ *         style: form
+ *         explode: false
+ *         schema:
+ *           type: array
+ *           items:
+ *             type: string
+ *             enum: [PSA, PHILSYS, VOTERS]
+ *         examples:
  *       - in: query
  *         name: pageSize
  *         schema:
@@ -76,13 +96,45 @@ const upload = multer({
 router.get(
   "/:userId/list",
   [
+    query("type")
+      .optional()
+      .customSanitizer((value) => {
+        // Always return an array
+        if (Array.isArray(value)) return value;
+        else if (value && value.split(",").length > 0) return value.split(",");
+        else return [value];
+      })
+      .custom((values) => {
+        values.forEach((v) => {
+          if (
+            ![
+              "PSA",
+              "PHILSYS",
+              "VOTERS",
+            ].includes(v)
+          ) {
+            throw new Error(
+              `Invalid type: ${v}. Must be one of: ${[
+              "PSA",
+              "PHILSYS",
+              "VOTERS",
+              ].join(", ")}`
+            );
+          }
+        });
+        return true;
+      }),
+
     query("pageSize")
       .optional()
-      .isInt({ min: 1, max: 100 }).withMessage("pageSize must be between 1 and 100")
+      .isInt({ min: 1, max: 100 })
+      .withMessage("pageSize must be between 1 and 100")
       .toInt(),
+
     query("pageIndex")
       .optional()
-      .isInt({ min: 0 }).withMessage("pageIndex must be 0 or greater")
+      .isInt({ min: 0 })
+      .withMessage("pageIndex must be 0 or greater")
       .toInt(),
   ],
   asyncHandler(getVerificationList)
@@ -105,8 +157,7 @@ router.get(
  *       200:
  *         description: Verification details
  */
-router.get('/:id', asyncHandler(getVerification));
-
+router.get("/:id", asyncHandler(getVerification));
 
 /**
  * @openapi
@@ -169,7 +220,7 @@ router.get('/:id', asyncHandler(getVerification));
  *       401:
  *         description: Invalid data
  */
-router.post('/verify/psa', asyncHandler(verifyPSA));
+router.post("/verify/psa", asyncHandler(verifyPSA));
 
 /**
  * @openapi
@@ -208,5 +259,35 @@ router.post('/verify/psa', asyncHandler(verifyPSA));
  *         description: Model or server error
  */
 router.post("/verify/ocr", upload.single("image"), asyncHandler(verifyOCR));
+
+/**
+ * @openapi
+ * /api/verification/{id}:
+ *   delete:
+ *     tags: [Verification]
+ *     summary: Delete Verification
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The id of the Verification
+ *     responses:
+ *       200:
+ *         description: Verification details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *       401:
+ *         description: Invalid data
+ */
+router.delete("/:id", asyncHandler(remove));
 
 export default router;

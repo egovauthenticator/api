@@ -14,7 +14,7 @@ export async function getVerificationById(id) {
   return camelcaseKeys(result.rows[0]);
 }
 
-export async function getVerificationByUser(userId, pageSize = 10, pageIndex = 0) {
+export async function getVerificationByUser(q, type, userId, pageSize = 10, pageIndex = 0) {
   const size = Number(pageSize) > 0 ? Number(pageSize) : 10;
   const index = Number(pageIndex) >= 0 ? Number(pageIndex) : 0;
   const offset = index * size;
@@ -32,16 +32,31 @@ export async function getVerificationByUser(userId, pageSize = 10, pageIndex = 0
     COUNT(*) OVER() AS total_rows
     FROM dbo."Verification" v
     LEFT JOIN dbo."User" u ON v."UserId" = u."UserId"
-    WHERE v."UserId" = $1 
+    WHERE v."UserId" = $3 
     AND v."Data"->>'id' IS NOT NULL AND v."Data"->>'id' <> ''
     AND v."Data"->>'name' IS NOT NULL AND v."Data"->>'name' <> ''
     AND v."Data"->>'firstName' IS NOT NULL AND v."Data"->>'firstName' <> ''
     AND v."Data"->>'lastName' IS NOT NULL AND v."Data"->>'lastName' <> ''
-    AND v."Type" IN ('PSA', 'PHILSYS', 'VOTERS')
+    AND 
+      (
+        COALESCE($1, '') = '' OR
+        LOWER(v."Data"->>'name') ILIKE '%' || $1 || '%' OR
+        LOWER(v."Data"->>'firstName') ILIKE '%' || $1 || '%' OR
+        LOWER(v."Data"->>'middleName') ILIKE '%' || $1 || '%' OR
+        LOWER(v."Data"->>'lastName') ILIKE '%' || $1 || '%' OR
+        LOWER(v."Data"->>'id') ILIKE '%' || $1 || '%' OR
+        LOWER(v."Data"->>'address') ILIKE '%' || $1 || '%' OR
+        LOWER(v."Data"->>'precintNo') ILIKE '%' || $1 || '%' OR
+        LOWER(v."Data"->>'votersIdNumber') ILIKE '%' || $1 || '%' OR
+        LOWER(v."Data"->>'id') ILIKE '%' || $1 || '%' OR
+        LOWER(v."Data"->>'others') ILIKE '%' || $1 || '%'
+      )
+    AND ($2::text[] IS NULL OR v."Type" = ANY($2))
+    AND v."Active" = true
     ORDER BY v."Timestamp" DESC
-    LIMIT $2 OFFSET $3;
+    LIMIT $4 OFFSET $5;
   `;
-  const result = await pool.query(sql, [userId, size, offset]);
+  const result = await pool.query(sql, [q.toLowerCase()?.trim(), type, userId, size, offset]);
 
   const totalRows = result.rows.length > 0 ? Number(result.rows[0].total_rows) : 0;
 
@@ -100,3 +115,13 @@ export async function verifyVoters(precintNumber, firstName, lastName) {
   if (result.rows.length === 0) return null;
   return camelcaseKeys(result.rows[0]);
 }
+
+export async function deleteVerification(id) {
+  const sql = `
+  UPDATE dbo."Verification" SET "Active" = false WHERE "Id" = $1;
+`;
+  const params = [id];
+  const result = await pool.query(sql, params);
+  return camelcaseKeys(result.rows[0]);
+}
+

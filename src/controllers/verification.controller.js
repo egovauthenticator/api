@@ -6,6 +6,7 @@ import {
   createVerification,
   verifyPSARecords,
   verifyVoters,
+  deleteVerification
 } from "../services/verification.service.js";
 import { ERROR_VERIFICATION_NOT_FOUND } from "../constants/verification.constant.js";
 import { ERROR_USER_NOT_FOUND } from "../constants/user.constant.js";
@@ -207,7 +208,7 @@ export async function getVerification(req, res) {
 export async function getVerificationList(req, res) {
   try {
     const userId = req.params.userId;
-    const { pageSize, pageIndex } = req.query;
+    const { q, type, pageSize, pageIndex } = req.query;
     if (!userId) return res.status(400).json({ message: "Missing file id" });
 
     const user = await getUserById(userId);
@@ -217,7 +218,17 @@ export async function getVerificationList(req, res) {
         .json({ success: false, message: ERROR_USER_NOT_FOUND });
     }
 
-    const results = await getVerificationByUser(userId, pageSize, pageIndex);
+    const results = await getVerificationByUser(
+      q ?? "",
+      type
+        ? Array.isArray(type)
+          ? type
+          : type.split(",")
+        : ["PSA", "PHILSYS", "VOTERS"],
+      userId,
+      pageSize,
+      pageIndex
+    );
     return res.json({ success: true, data: results });
   } catch (err) {
     console.error(err);
@@ -227,6 +238,7 @@ export async function getVerificationList(req, res) {
 }
 
 export async function verifyPSA(req, res) {
+  let user;
   try {
     // Accept both exact keys or fallbacks from client
     const {
@@ -242,12 +254,18 @@ export async function verifyPSA(req, res) {
       sf, // suffix
     } = req.body || {};
 
+    user = await getUserById(userId);
+    if (!user) {
+      return res
+        .status(400)
+        .json({ success: false, message: ERROR_USER_NOT_FOUND });
+    }
+
     // Basic validation
     if (!d || !dob || !pcn || !pob || !fn || !ln || !mn || !s) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required fields: d, dob, pcn, pob, fn, ln, mn, s",
-      });
+      throw new Error(
+        "Missing required fields: d, dob, pcn, pob, fn, ln, mn, s"
+      );
     }
 
     // Cache key for verifier result
@@ -264,18 +282,23 @@ export async function verifyPSA(req, res) {
     });
     const cached = getIfFresh(verifyCache, verifyKey);
     if (cached) {
-      const verification = await createVerification("PHILSYS", userId, {
-        id: pcn,
-        sex: s,
-        name: `${fn} ${mn ? mn + ' ' : ''}${ln}`,
-        address: pob,
-        lastName: ln,
-        firstName:fn,
-        precintNo: null,
-        middleName: mn,
-        dateOfBirth: dob,
-        placeOfBirth: pob,
-      }, "AUTHENTIC");
+      const verification = await createVerification(
+        "PHILSYS",
+        userId,
+        {
+          id: pcn,
+          sex: s,
+          name: `${fn} ${mn ? mn + " " : ""}${ln}`,
+          address: pob,
+          lastName: ln,
+          firstName: fn,
+          precintNo: null,
+          middleName: mn,
+          dateOfBirth: dob,
+          placeOfBirth: pob,
+        },
+        "AUTHENTIC"
+      );
       return res.json({ success: true, cached: true, data: verification });
     }
 
@@ -325,9 +348,27 @@ export async function verifyPSA(req, res) {
       const message =
         (respJson && (respJson.message || respJson.error)) ||
         `Verifier failed with ${resp.status}`;
+
+      const verification = await createVerification(
+        "PHILSYS",
+        userId,
+        {
+          id: pcn,
+          sex: s,
+          name: `${fn} ${mn ? mn + " " : ""}${ln}`,
+          address: pob,
+          lastName: ln,
+          firstName: fn,
+          precintNo: null,
+          middleName: mn,
+          dateOfBirth: dob,
+          placeOfBirth: pob,
+        },
+        "FAKE"
+      );
       return res
-        .status(401)
-        .json({ success: false, message, raw: respJson || respText });
+        .status(200)
+        .json({ success: false, message, data: verification });
     }
 
     const data = respJson ?? { raw: respText };
@@ -335,21 +376,27 @@ export async function verifyPSA(req, res) {
     // Cache successful verification result
     setWithTTL(verifyCache, verifyKey, data, env.verifier?.verifyTTLMS);
 
-    const verification = await createVerification("PHILSYS", userId, {
-      id: pcn,
-      sex: s,
-      name: `${fn} ${mn ? mn + ' ' : ''}${ln}`,
-      address: pob,
-      lastName: ln,
-      firstName:fn,
-      precintNo: null,
-      middleName: mn,
-      dateOfBirth: dob,
-      placeOfBirth: pob,
-    }, "AUTHENTIC");
+    const verification = await createVerification(
+      "PHILSYS",
+      userId,
+      {
+        id: pcn,
+        sex: s,
+        name: `${fn} ${mn ? mn + " " : ""}${ln}`,
+        address: pob,
+        lastName: ln,
+        firstName: fn,
+        precintNo: null,
+        middleName: mn,
+        dateOfBirth: dob,
+        placeOfBirth: pob,
+      },
+      "AUTHENTIC"
+    );
     return res.json({ success: true, cached: false, data: verification });
   } catch (err) {
     console.error(err);
+    if (user) await createVerification("PSA", userId, {}, "ERROR");
     return res
       .status(500)
       .json({ success: false, message: "Verification error" });
@@ -358,7 +405,7 @@ export async function verifyPSA(req, res) {
 
 export async function verifyOCR(req, res) {
   const { userId } = req.body;
-  const file = req.file;                      // from multer.memoryStorage()
+  const file = req.file; // from multer.memoryStorage()
   const buffer = file?.buffer;
   const filename = file?.originalname || "upload.jpg";
 
@@ -374,7 +421,9 @@ export async function verifyOCR(req, res) {
   try {
     user = await getUserById(userId);
     if (!user) {
-      return res.status(400).json({ success: false, message: ERROR_USER_NOT_FOUND });
+      return res
+        .status(400)
+        .json({ success: false, message: ERROR_USER_NOT_FOUND });
     }
 
     const result = await extractWithGemini({
@@ -383,19 +432,32 @@ export async function verifyOCR(req, res) {
       filename,
     });
 
-    if (result?.type?.toLowerCase?.().includes("certificate") &&
-        result?.type?.toLowerCase?.().includes("birth")) {
+    if (
+      result?.type?.toLowerCase?.().includes("certificate") &&
+      result?.type?.toLowerCase?.().includes("birth")
+    ) {
       type = "PSA";
       data = { ...result, type };
-      const records = await verifyPSARecords(result?.firstName, result?.lastName, result?.sex, result?.dateOfBirth);
-      status = records && records?.id ? "Verified" : "Fake";
-    } else if (result?.type?.toLowerCase?.().includes("certification") &&
-               result?.type?.toLowerCase?.().includes("vote")) {
+      const records = await verifyPSARecords(
+        result?.firstName,
+        result?.lastName,
+        result?.sex,
+        result?.dateOfBirth
+      );
+      status = records && records?.id ? "AUTHENTIC" : "FAKE";
+    } else if (
+      result?.type?.toLowerCase?.().includes("certification") &&
+      result?.type?.toLowerCase?.().includes("vote")
+    ) {
       type = "VOTERS";
       result.precintNo = result.precintNo?.trim().split(" ").join(""); // remove spaces
       data = { ...result, type };
-      const voters = await verifyVoters(result?.precintNo, result?.firstName, result?.lastName);
-      status = voters && voters?.id ? "Verified" : "Fake";
+      const voters = await verifyVoters(
+        result?.precintNo,
+        result?.firstName,
+        result?.lastName
+      );
+      status = voters && voters?.id ? "AUTHENTIC" : "FAKE";
     } else {
       type = "UNKNOWN";
       throw new Error("Unrecognized document type");
@@ -404,21 +466,46 @@ export async function verifyOCR(req, res) {
     delete data.type;
     const verification = await createVerification(type, userId, data, status);
 
-    if (status === "Verified") {
+    if (status === "AUTHENTIC") {
       return res.json({ success: true, data: verification });
     } else {
       return res.status(400).json({
         success: false,
         data: verification,
-        message: "This is not verified and authentic",
+        message: "This is not authentic",
       });
     }
   } catch (err) {
     console.error(err);
-    if (type && user) await createVerification(type, userId, {}, "Failed");
+    if (type && user) await createVerification(type, userId, {}, "ERROR");
     return res.status(500).json({
       success: false,
       message: err?.message || String(err),
     });
   }
+}
+
+export async function remove(req, res) {
+  const { id } = req.params;
+  let verification;
+  try {
+    // ensure the doc request exists
+    verification = await getVerificationById(id);
+    if (!verification) {
+      return res
+        .status(400)
+        .json({ success: false, message: ERROR_VERIFICATION_NOT_FOUND });
+    }
+
+    await deleteVerification(id);
+  } catch (error) {
+    return res
+      .status(400)
+      .json({ success: false, message: error.message || "Failed to delete Verification" });
+  }
+  return res.json({
+    success: true,
+    data: verification,
+    message: "Verification deleted successfully!",
+  });
 }
