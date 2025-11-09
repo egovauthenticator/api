@@ -1,4 +1,4 @@
-// src/schema.js
+// src/config/schema.js
 // Keep to Gemini-supported subset of JSON schema.
 export const extractionSchema = {
   type: "object",

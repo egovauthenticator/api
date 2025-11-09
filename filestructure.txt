@@ -12,6 +12,7 @@
 |-- src
     |-- app.js
     |-- config
+        |-- cache.js
         |-- env.js
         |-- schema.js
         |-- swagger.js
@@ -20,6 +21,7 @@
         |-- user.constant.js
         |-- verification.constant.js
     |-- controllers
+        |-- api-key-management.controller.js
         |-- auth.controller.js
         |-- verification.controller.js
     |-- db
@@ -28,11 +30,13 @@
         |-- async.js
         |-- error-handler.js
     |-- routes
+        |-- api-key-management.routes.js
         |-- auth.routes.js
         |-- index.routes.js
         |-- verification.routes.js
     |-- server.js
     |-- services
+        |-- api-key-management.service.js
         |-- auth.service.js
         |-- email.service.js
         |-- gemini.service.js

@@ -2,6 +2,7 @@
 import http from 'http';
 import os from 'os';
 import app from './app.js';
+import { flushAllCaches } from "./config/cache.js"
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -25,4 +26,6 @@ http.createServer(app).listen(PORT, () => {
     '',
   ];
   console.log(lines.join('\n'));
+  flushAllCaches();
+  console.log("cache flushed!");
 });

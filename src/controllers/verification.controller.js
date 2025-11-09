@@ -6,13 +6,15 @@ import {
   createVerification,
   verifyPSARecords,
   verifyVoters,
-  deleteVerification
+  deleteVerification,
 } from "../services/verification.service.js";
 import { ERROR_VERIFICATION_NOT_FOUND } from "../constants/verification.constant.js";
 import { ERROR_USER_NOT_FOUND } from "../constants/user.constant.js";
 import { extractWithGemini } from "../services/gemini.service.js";
 import { getUserById } from "../services/user.service.js";
-import fs from "fs/promises";
+import { getAPIKey } from "../services/api-key-management.service.js";
+import crypto from "crypto";
+import { getCache } from "../config/cache.js";
 
 // ------------------------------
 // Simple in-memory caches
@@ -25,6 +27,20 @@ const cookieCache = new Map();
  * verifyCache: key is a stable hash string from request body, value: { data: any, expiresAt: number }
  */
 const verifyCache = new Map();
+
+// 24h TTL; tune as needed. useClones:false to avoid deep-cloning big objects.
+const cache = getCache("ocrCache", {
+  stdTTL: 86400,
+  checkperiod: 600,
+  useClones: false,
+});
+
+// Deduplicate concurrent extractions for the same image hash
+const inFlight = new Map(); // key: cacheKey, value: Promise<result>
+
+function hashBuffer(buf) {
+  return crypto.createHash("sha256").update(buf).digest("hex");
+}
 
 // ------------------------------
 // Helpers
@@ -426,16 +442,39 @@ export async function verifyOCR(req, res) {
         .json({ success: false, message: ERROR_USER_NOT_FOUND });
     }
 
-    const result = await extractWithGemini({
-      apiKey: env.google.aiAPIKey,
-      imageBuffer: buffer,
-      filename,
-    });
+    const apiKey = await getAPIKey("google-gen-ai");
 
-    if (
-      result?.type?.toLowerCase?.().includes("certificate") &&
-      result?.type?.toLowerCase?.().includes("birth")
-    ) {
+    // ====== CACHED GEMINI EXTRACTION (dedupe + cache) ======
+    const imgHash = hashBuffer(buffer);
+    const cacheKey = `ocr:gemini:${imgHash}`;
+
+    let result = cache.get(cacheKey);
+    if (!result) {
+      // Check if there is an ongoing extraction for this same image
+      let p = inFlight.get(cacheKey);
+      if (!p) {
+        p = (async () => {
+          const out = await extractWithGemini({
+            apiKey: apiKey?.apiKey,
+            imageBuffer: buffer,
+            filename,
+          });
+          // Cache only on success; you may also cache "null" to avoid repeated failures.
+          cache.set(cacheKey, out);
+          return out;
+        })().finally(() => {
+          // Always clear inFlight entry after settle
+          inFlight.delete(cacheKey);
+        });
+        inFlight.set(cacheKey, p);
+      }
+      result = await p;
+    }
+    // ====== END CACHED GEMINI EXTRACTION ======
+
+    const docType = result?.type?.toLowerCase?.() || "";
+
+    if (docType.includes("certificate") && docType.includes("birth")) {
       type = "PSA";
       data = { ...result, type };
       const records = await verifyPSARecords(
@@ -445,12 +484,10 @@ export async function verifyOCR(req, res) {
         result?.dateOfBirth
       );
       status = records && records?.id ? "AUTHENTIC" : "FAKE";
-    } else if (
-      result?.type?.toLowerCase?.().includes("certification") &&
-      result?.type?.toLowerCase?.().includes("vote")
-    ) {
+    } else if (docType.includes("certification") && docType.includes("vote")) {
       type = "VOTERS";
-      result.precintNo = result.precintNo?.trim().split(" ").join(""); // remove spaces
+      // normalize precinct number (remove spaces)
+      result.precintNo = result.precintNo?.trim().split(" ").join("");
       data = { ...result, type };
       const voters = await verifyVoters(
         result?.precintNo,
@@ -501,7 +538,10 @@ export async function remove(req, res) {
   } catch (error) {
     return res
       .status(400)
-      .json({ success: false, message: error.message || "Failed to delete Verification" });
+      .json({
+        success: false,
+        message: error.message || "Failed to delete Verification",
+      });
   }
   return res.json({
     success: true,
