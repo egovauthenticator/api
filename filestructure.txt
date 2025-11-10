@@ -8,6 +8,14 @@
 |-- nodemon.json
 |-- package-lock.json
 |-- package.json
+|-- public
+    |-- sample_of_female
+        |-- 1.png
+        |-- 2.png
+    |-- sample_of_male
+        |-- 1.png
+        |-- 2.png
+        |-- 3.png
 |-- README.md
 |-- src
     |-- app.js

@@ -12,7 +12,7 @@ import { ERROR_VERIFICATION_NOT_FOUND } from "../constants/verification.constant
 import { ERROR_USER_NOT_FOUND } from "../constants/user.constant.js";
 import { extractWithGemini } from "../services/gemini.service.js";
 import { getUserById } from "../services/user.service.js";
-import { getAPIKey } from "../services/api-key-management.service.js";
+import { getAPIKey, addUsage } from "../services/api-key-management.service.js";
 import crypto from "crypto";
 import { getCache } from "../config/cache.js";
 
@@ -469,6 +469,7 @@ export async function verifyOCR(req, res) {
         inFlight.set(cacheKey, p);
       }
       result = await p;
+      await addUsage(apiKey?.id);
     }
     // ====== END CACHED GEMINI EXTRACTION ======
 

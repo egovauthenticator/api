@@ -87,17 +87,18 @@ export async function verifyPSARecords(firstName, lastName, sex, dateOfBirth) {
   const sql = `
     SELECT *
     FROM dbo."PSARecords"
-    WHERE TRIM(LOWER("FirstName")) = TRIM(LOWER($1))
-      AND TRIM(LOWER("LastName")) = TRIM(LOWER($2))
-      AND TRIM(LOWER("Sex")) = TRIM(LOWER($3))
-      AND "DateOfBirth" = CAST($4 AS DATE);
+    WHERE (TRIM(LOWER("FirstName")) ILIKE '%' || TRIM(LOWER($1)) || '%'
+      AND TRIM(LOWER("LastName")) ILIKE '%' || TRIM(LOWER($2)) || '%'
+      AND "DateOfBirth" = CAST($4 AS DATE)) OR (TRIM(LOWER("FirstName")) ILIKE '%' || TRIM(LOWER($1)) || '%'
+      AND TRIM(LOWER("LastName")) ILIKE '%' || TRIM(LOWER($2)) || '%'
+      AND "DateOfBirth" = CAST($4 AS DATE) AND TRIM(LOWER("Sex")) = TRIM(LOWER($3)));
   `;
 
   const result = await pool.query(sql, [
     firstName,
     lastName,
     sex,
-    dateOfBirth, // format must be 'YYYY-MM-DD'
+    dateOfBirth, // must be 'YYYY-MM-DD'
   ]);
 
   if (result.rows.length === 0) return null;
