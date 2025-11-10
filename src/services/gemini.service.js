@@ -7,7 +7,7 @@ import { extractionSchema } from "../config/schema.js";
 const PREFERRED_MODELS = [
   "gemini-2.5-flash",
   "gemini-2.0-flash",
-  "gemini-1.5-flash", // fallback only if available to your key/region
+  "gemini-1.5-flash" // fallback only if available to your key/region
 ];
 
 export function geminiClient(apiKey) {
@@ -43,7 +43,6 @@ export function bufferToInlinePart(buffer, filename = "image.jpg") {
   };
 }
 
-/* ---------- JSON helpers (unchanged) ---------- */
 function extractFirstJSONObject(s) {
   if (!s) return null;
   const start = s.indexOf("{");
@@ -82,10 +81,7 @@ function assertNotBlocked(resp) {
   }
 }
 
-/* ---------- Generic Gemini caller with optional schema ---------- */
-async function callWithSchema({
-  genAI, modelId, imagePart, systemMsg, responseSchema, maxOutputTokens,
-}) {
+async function callModel({ genAI, modelId, imagePart, systemMsg, withSchema, maxOutputTokens }) {
   const model = genAI.getGenerativeModel({
     model: modelId,
     generationConfig: {
@@ -93,8 +89,9 @@ async function callWithSchema({
       topK: 32,
       topP: 0.95,
       maxOutputTokens,
-      responseMimeType: "application/json",
-      ...(responseSchema ? { responseSchema } : {}),
+      ...(withSchema
+        ? { responseMimeType: "application/json", responseSchema: extractionSchema }
+        : { responseMimeType: "application/json" })
     },
   });
 
@@ -109,95 +106,17 @@ async function callWithSchema({
   return parsed;
 }
 
-/* =====================================================================
-   PASS 1: QR-first detector/reader (Gemini-only)
-   - We ask Gemini to ONLY return QR content (if any), parsed as JSON when it
-     looks like JSON, or "" if unreadable / not present.
-   - Minimal schema to avoid hallucinations.
-   ===================================================================== */
-
-const QR_DETECT_SCHEMA = {
-  type: "object",
-  properties: {
-    // "qr" should contain the parsed QR JSON object if the QR content is JSON.
-    // If QR exists but isn't JSON, return an empty object and put raw text in "raw".
-    qr: { type: "object", additionalProperties: true },
-    // "raw" contains the raw decoded QR text (if not JSON, or if JSON parse fails).
-    raw: { type: "string" },
-    // "found" makes it explicit if a QR was detected and decoded.
-    found: { type: "boolean" }
-  },
-  required: ["found", "qr", "raw"]
-};
-
-const QR_DETECT_PROMPT = [
-  "You are a QR code detector and reader.",
-  "Inspect the provided image and do the following:",
-  "1) If a QR code is visible and decodable, decode its content.",
-  "2) If the decoded QR content looks like JSON (starts with '{' and ends with '}'), parse it and place it in the 'qr' field, and set 'raw' to the original text.",
-  "3) If the decoded QR content is not JSON, set 'qr' to an empty object {} and set 'raw' to the decoded string.",
-  "4) If there is no visible or readable QR, set 'found' to false and return qr: {} and raw: \"\".",
-  "Return strictly valid JSON only."
-].join(" ");
-
-/* PSA QR validator + mapper (when QR is JSON with PSA shape) */
-function isValidPSAQRJson(obj) {
-  if (!obj || typeof obj !== "object") return false;
-  if (!obj.d || !obj.i || typeof obj.sb !== "object") return false;
-  if (String(obj.i).toUpperCase() !== "PSA") return false;
-  const sb = obj.sb || {};
-  const needed = ["DOB", "PCN", "POB", "fn", "ln", "mn", "s"];
-  for (const k of needed) if (typeof sb[k] === "undefined") return false;
-  return true;
-}
-function normalizePOB(pob) {
-  if (!pob) return "";
-  return pob.replace(/,\s*/g, ", ").replace(/\s{2,}/g, " ").trim();
-}
-function mapPSAQRToExtraction(obj) {
-  const sb = obj.sb || {};
-  const firstName  = String(sb.fn || "").trim().toUpperCase();
-  const middleName = String(sb.mn || "").trim().toUpperCase();
-  const lastName   = String(sb.ln || "").trim().toUpperCase();
-  const placeOfBirth = normalizePOB(String(sb.POB || ""));
-  const fullName = [firstName, middleName, lastName].filter(Boolean).join(" ").trim();
-
-  return {
-    type: "PSA",
-    id: String(sb.PCN || "").replace(/[^0-9]/g, ""),
-    name: fullName,
-    firstName,
-    middleName,
-    lastName,
-    sex: String(sb.s || "").trim(),
-    dateOfBirth: String(sb.DOB || "").trim(),
-    placeOfBirth,
-    address: placeOfBirth, // PSA QR doesn't include a separate address; reuse POB
-    precintNo: "",
-    votersIdNumber: "",
-    others: "",
-  };
-}
-
-/* =====================================================================
-   PASS 2: OCR/field extractor (your original logic, with a stronger prompt
-           that explicitly says: read QR first if present; otherwise OCR)
-   ===================================================================== */
-
+/** Hard-coded instruction prompt */
 const HARDCODED_PROMPT = [
   "You are a precise information extractor for Philippine identification and civil registry documents.",
-  "If a QR code is visible, read it FIRST and use its structured content as the source of truth.",
-  "If the QR is PSA-style (with keys d, i='PSA', sb{DOB, PCN, POB, fn, ln, mn, s,...}), map it to the requested output fields.",
-  "If no usable QR is visible, use OCR on the image.",
-  "",
   "Populate the following JSON keys exactly:",
   "type, id, name, firstName, middleName, lastName, sex, dateOfBirth, placeOfBirth, address, precintNo, votersIdNumber, others.",
   "Rules:",
-  "1. For dateOfBirth, always format the value as YYYY-MM-DD (ISO).",
+  "1. For dateOfBirth, always format the value as YYYY-MM-DD (ISO format).",
   "2. For placeOfBirth, match and normalize locations within the Philippines (cities, municipalities, or provinces).",
-  "   Use knowledge of Philippine geography to correct spacing and commas.",
+  "   Use your knowledge of Philippine geography to infer the correct spelling or province if abbreviated.",
   "3. If a field is not visible or uncertain, return an empty string for that field.",
-  "4. Do not include commentary or extra keys—return strictly valid JSON.",
+  "4. Do not output commentary, markdown, or extra text—return strictly valid JSON only.",
   "5. votersIdNumber can also be id sometimes if the uploaded image is a voter's certification."
 ].join(" ");
 
@@ -206,15 +125,13 @@ Return only this JSON:
 {"type":"","id":"","name":"","firstName":"","middleName":"","lastName":"","sex":"","dateOfBirth":"","placeOfBirth":"","address":"","precintNo":"","votersIdNumber":"","others":""}
 Keep all values short and on one line.
 Format dateOfBirth strictly as YYYY-MM-DD.
-For placeOfBirth, ensure it's a valid location in the Philippines (city, municipality, or province), with proper comma spacing.
+For placeOfBirth, ensure it's a valid location in the Philippines (city, municipality, or province).
 `;
 
-/* =====================================================================
-   Public: extractWithGemini
-   - Pass 1: Ask Gemini to detect+decode QR and return JSON (if any).
-   - If PSA QR is detected, map and return immediately.
-   - Else Pass 2: Run the original extractor prompt using your schema.
-   ===================================================================== */
+/**
+ * Main extraction with schema first, then fallback.
+ * Accepts either imagePath (local dev) or imageBuffer + filename (serverless like Vercel).
+ */
 export async function extractWithGemini({ apiKey, imagePath, imageBuffer, filename }) {
   const genAI = geminiClient(apiKey);
 
@@ -222,77 +139,28 @@ export async function extractWithGemini({ apiKey, imagePath, imageBuffer, filena
     ? bufferToInlinePart(imageBuffer, filename)
     : await fileToInlinePart(imagePath);
 
-  /* ---- Pass 1: QR-first (Gemini only) ---- */
-  const tryQRDetect = async (modelId) => {
-    return await callWithSchema({
-      genAI,
-      modelId,
-      imagePart,
-      systemMsg: QR_DETECT_PROMPT,
-      responseSchema: QR_DETECT_SCHEMA,
-      maxOutputTokens: 512,
-    });
-  };
-
-  for (const modelId of PREFERRED_MODELS) {
+  const tryModel = async (modelId) => {
     try {
-      const qrRes = await tryQRDetect(modelId);
-      if (qrRes?.found) {
-        // Prefer parsed JSON if it looks PSA-like
-        const candidate = qrRes?.qr && Object.keys(qrRes.qr || {}).length ? qrRes.qr : null;
-        if (candidate && isValidPSAQRJson(candidate)) {
-          return mapPSAQRToExtraction(candidate); // short-circuit success
-        }
-        // If raw QR is JSON but not PSA, we still ignore and fall through to OCR extractor
-        // (or you could add other QR formats here later)
-      }
-      // If not found, fall through to OCR extraction
-      break;
-    } catch (e) {
-      const msg = String(e?.message || e);
-      // Try next model on transport/model errors
-      if (/not found|404|unsupported/i.test(msg)) continue;
-      // Non-model error → break to fallback
-      break;
-    }
-  }
-
-  /* ---- Pass 2: OCR/field extraction (original flow) ---- */
-  const tryExtract = async (modelId) => {
-    try {
-      // Attempt 1: with schema (preferred)
-      return await callWithSchema({
-        genAI,
-        modelId,
-        imagePart,
-        systemMsg: HARDCODED_PROMPT,
-        responseSchema: extractionSchema,
-        maxOutputTokens: 2048,
+      return await callModel({
+        genAI, modelId, imagePart, systemMsg: HARDCODED_PROMPT, withSchema: true, maxOutputTokens: 2048
       });
     } catch (e1) {
       const msg1 = String(e1?.message || e1);
       if (/not found|404|unsupported/i.test(msg1)) throw e1;
-      // Attempt 2: without schema (but still JSON-only)
-      return await callWithSchema({
-        genAI,
-        modelId,
-        imagePart,
-        systemMsg: HARDCODED_PROMPT + RETRY_PROMPT,
-        responseSchema: null,
-        maxOutputTokens: 4096,
+      return await callModel({
+        genAI, modelId, imagePart, systemMsg: HARDCODED_PROMPT + RETRY_PROMPT, withSchema: false, maxOutputTokens: 4096
       });
     }
   };
 
   for (const modelId of PREFERRED_MODELS) {
     try {
-      return await tryExtract(modelId);
+      return await tryModel(modelId);
     } catch (e) {
       const msg = String(e?.message || e);
       if (/not found|404|unsupported/i.test(msg)) continue;
       throw e;
     }
   }
-
   throw new Error("No supported Gemini Flash model available for this API key/region.");
 }
