@@ -19,7 +19,7 @@
  */
 import { Router } from 'express';
 import { asyncHandler } from '../middlewares/async.js';
-import { getAll, create, expired } from '../controllers/api-key-management.controller.js';
+import { get, getAll, create, usage, expired } from '../controllers/api-key-management.controller.js';
 
 const router = Router();
 
@@ -58,6 +58,55 @@ const router = Router();
  *                         type: string
  */
 router.get('/all', asyncHandler(getAll));
+
+/**
+ * @openapi
+ * /api/api-key-management/one:
+ *   get:
+ *     tags: [API Key Management]
+ *     summary: Get single API key (per-user cache)
+ *     parameters:
+ *       - $ref: '#/components/parameters/UserIdHeader'
+ *       - in: query
+ *         name: name
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The name of the api key.
+ *       - in: query
+ *         name: refresh
+ *         required: false
+ *         schema:
+ *           type: boolean
+ *           default: false
+ *         description: If true, bypass and refresh this user's cache.
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                     apiKey:
+ *                       type: string
+ *                     usage:
+ *                       type: string
+ *                     active:
+ *                       type: string
+ */
+router.get('/one', asyncHandler(get));
 
 /**
  * @openapi
@@ -114,6 +163,53 @@ router.get('/all', asyncHandler(getAll));
  *         description: Invalid input or duplicate key
  */
 router.post('/', asyncHandler(create));
+
+/**
+ * @openapi
+ * /api/api-key-management/{id}/usage:
+ *   put:
+ *     tags: [API Key Management]
+ *     summary: Update usage
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: API Key ID
+ *     responses:
+ *       200:
+ *         description: API Key usage updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                     apiKey:
+ *                       type: string
+ *                     usage:
+ *                       type: string
+ *                     active:
+ *                       type: string
+ *                 message:
+ *                   type: string
+ *       404:
+ *         description: API Key not found
+ *       400:
+ *         description: Error processing request
+ */
+router.put('/:id/usage', asyncHandler(usage));
 
 /**
  * @openapi
