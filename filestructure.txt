@@ -23,6 +23,7 @@
     |-- controllers
         |-- api-key-management.controller.js
         |-- auth.controller.js
+        |-- user.controller.js
         |-- verification.controller.js
     |-- db
         |-- db.js
@@ -33,6 +34,7 @@
         |-- api-key-management.routes.js
         |-- auth.routes.js
         |-- index.routes.js
+        |-- user.routes.js
         |-- verification.routes.js
     |-- server.js
     |-- services
