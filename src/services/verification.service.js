@@ -87,9 +87,9 @@ export async function verifyPSARecords(firstName, lastName, sex, dateOfBirth) {
   const sql = `
     SELECT *
     FROM dbo."PSARecords"
-    WHERE LOWER("FirstName") = LOWER($1)
-      AND LOWER("LastName") = LOWER($2)
-      AND LOWER("Sex") = LOWER($3)
+    WHERE TRIM(LOWER("FirstName")) = TRIM(LOWER($1))
+      AND TRIM(LOWER("LastName")) = TRIM(LOWER($2))
+      AND TRIM(LOWER("Sex")) = TRIM(LOWER($3))
       AND "DateOfBirth" = CAST($4 AS DATE);
   `;
 
@@ -109,7 +109,7 @@ export async function verifyVoters(precintNumber, firstName, lastName) {
   const sql = `
     SELECT *
     FROM dbo."VotersRecords"
-    WHERE LOWER("PrecintNumber") = LOWER($1) AND LOWER("FirstName")= LOWER($2) AND LOWER("LastName") = LOWER($3);
+    WHERE TRIM(LOWER("PrecintNumber")) = TRIM(LOWER($1)) AND TRIM(LOWER("FirstName"))= TRIM(LOWER($2)) AND TRIM(LOWER("LastName")) = TRIM(LOWER($3));
   `;
   const result = await pool.query(sql, [precintNumber, firstName, lastName]);
   if (result.rows.length === 0) return null;
