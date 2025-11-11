@@ -10,6 +10,10 @@
       "use": "@vercel/static"
     }
   ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "index.js" },
+    { "src": "/(.*)", "dest": "index.js" }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
@@ -20,10 +24,6 @@
         { "key": "Access-Control-Expose-Headers", "value": "Content-Length, Content-Type, X-Vercel-Error" }
       ]
     }
-  ],
-  "routes": [
-    { "src": "/api/(.*)", "dest": "index.js" },
-    { "src": "/(.*)", "dest": "index.js" }
   ],
   "env": {
     "NODE_ENV": "production"
